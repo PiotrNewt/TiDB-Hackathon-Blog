@@ -1,5 +1,5 @@
 # TiDB Hackathon Blog
-回望 10 月，TiDB Hackathon 两天及 Telant Plan 在 PingCAP 广州 Office 度过的这几周真的使我印象深刻。
+回望 10 月，TiDB Hackathon 两天及 Talent Plan 在 PingCAP 广州 Office 度过的这几周真的使我印象深刻。
 我是电子科技大学研二的一名学生，我和我的 partner 吕小荣本次是以 PingCAP Talent Plan 学员的身份参加 Hackathon，虽然没有得奖，但是对于第一次参加 Hackathon 比赛的我来说也是收获满满。Talent Plan 的题目是官方确定的，我们在其中选到的是「基于采样的行数估计」，本文主要阐述在这个题目下的一些设计与实现。
 
 首先做这个项目的动机是由于 TiDB 当前的查询优化存在以下问题：
@@ -38,7 +38,7 @@ mysql> Explain Select * From t Where abs(a) > 10;
 3 rows in set (0.00 sec)
 ```
 
-对于列相关的查询亦是无法精确估计行数：
+对于列相关的查询，由于在构建统计信息的时候假设两列独立，所以在处理列相关的查询的统计信息时，优化器只是简单的将两列的选择率相乘，无法精确估计行数：
 
 ```sql
 mysql> Analyze table t;
@@ -83,7 +83,7 @@ mysql> Select count(*) From t Where a > 1 and b > 2;
 
 传统的物理优化主要决定以下三点：
 - **单表**：Access Path，即从物理表中取到数据的路径，通常是决定是否使用索引扫描，索引扫描后是否需要回表等；
-- **两表**：Join Approach，即两表实际 Join 的实现方式，如 Hash Jion 和 Sort-Marge Join 的选择；
+- **两表**：Join Approach，即两表实际 Join 的实现方式，如 Hash Jion 和 Sort-Merge Join 的选择；
 - **多表**：Join Order，即多个表 Join 的顺序，较优的连接顺序往往会产生较少的中间结果，从而减少不必要的计算；
 
 当前的 TiDB 对 Join Order 的计算是放在逻辑优化阶段实现的，为了简化实现这里暂不考虑，于是聚焦在物理优化阶段使用统计信息选择物理算子这个地方。如决定对于一张表在 KV 上的访问应该是 TableScan，IndexScan 或是 IndexLookUpScan，这在 TiDB 中的实现是将 `DataSource` 这样的逻辑算子转化为 `TableReader`, `IndexReader` 或 `IndexLookUpReader`。
@@ -132,7 +132,7 @@ mysql> Select count(*) From t Where a > 1 and b > 2;
 ## 一些可以改进的地方
 我们当前的实现是在 HistColl 的 Selectivity 方法中进行表达式的计算，而只有能够下推到 DataSource 的表达式时才会调用这个方法，这就意味着我们只能实现对于能够下推到 DataSource 上的 expression 进行选择率的计算。但在物理优化阶段需要对逻辑计划树中每个节点构建统计信息，而不同的算子有自己的计算逻辑，因此对于每个算子都要重写 Stats Derivation 的过程，将整个获取统计信息的构建过程都实现基于采样的行数估计。
 
-当然，在实现了基本的功能之后（比如在当前默认的查询优化器下），需要测试再确定是否有必要继续深入或需要进行怎样的优化。因为采样的过程也会存在一定的开销，这其实和之前 [Paper Reading](https://www.bilibili.com/video/av46925336) 分享的 [smooth scan](https://stratos.seas.harvard.edu/files/stratos/files/smooth_vldbj.pdf) 一样，是一个 **trade off** 的过程。因此首先需要确定其对内存的消耗换取算出一个更优的查询计划在执行时间上的收益是否可以接受，同时需要确定采样的过程对于集群负载的影响是否能够被其选一个更优的执行计划在集群中执行带来的收益所抵消，如对 QPS 指标的影响等。
+当然，在实现了基本的功能之后（比如在当前默认的查询优化器下），需要测试再确定是否有必要继续深入或需要进行怎样的优化。因为采样的过程也会存在一定的开销，这其实和之前 [Paper Reading](https://www.bilibili.com/video/av46925336) 分享的 [Smooth Scan](https://stratos.seas.harvard.edu/files/stratos/files/smooth_vldbj.pdf) 一样，是一个 **trade off** 的过程。因此首先需要确定其对内存的消耗换取算出一个更优的查询计划在执行时间上的收益是否可以接受，同时需要确定采样的过程对于集群负载的影响是否能够被其选一个更优的执行计划在集群中执行带来的收益所抵消，如对 QPS 指标的影响等。
 
 如果用动态采样来估算行数在查询中能够带来一定收益，那么将其拓展到 Cascade Optimizer 上将会获得更大的优化效果，因为新的优化器框架将会把规则转化和代价模型放到一起做，这就意味着将逻辑优化和物理优化结合在一起，显然这将扩大执行计划的搜索空间，那么更加精确的统计信息将变得尤为重要。
 
@@ -141,4 +141,4 @@ mysql> Select count(*) From t Where a > 1 and b > 2;
 
 Hackathon 和 Talent Plan 确实让我切身感受到了 PingCAP 的技术热情与团队文化，PingCAP University 确实如一个 University，不管结果怎样，整个与老师交流、动手实践及团队协作的过程能够学习到的东西确实是比在学校来得多。
 
-最后感谢 SQL Engine 组的海滨、张健及珂男老师，每次引导式的提问总是能让我更加清晰的理解问题，更快的找到问题的答案与当前的不足。同时感谢琳琳姐在 Talent Plan 活动上的付出，感谢广州 Office 源源不断的零食水果供应及各位小伙伴在技术问题上的帮助。
+最后感谢 SQL Engine 组的海滨、张建及珂男老师，每次引导式的提问总是能让我更加清晰的理解问题，更快的找到问题的答案与当前的不足。同时感谢琳琳姐在 Talent Plan 活动上的付出，感谢广州 Office 源源不断的零食水果供应及各位小伙伴在技术问题上的帮助。
