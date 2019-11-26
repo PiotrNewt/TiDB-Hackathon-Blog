@@ -38,7 +38,7 @@ mysql> Explain Select * From t Where abs(a) > 10;
 3 rows in set (0.00 sec)
 ```
 
-对于列相关的查询，由于在构建统计信息的时候假设两列独立，所以在处理列相关的查询的统计信息时，优化器只是简单的将两列的选择率相乘，无法精确估计行数：
+对于列相关的查询，由于在构建统计信息的时候假设两列独立，所以在计算整个条件的选择率时优化器只是简单的将两列的选择率相乘，无法精确估算：
 
 ```sql
 mysql> Analyze table t;
@@ -68,7 +68,7 @@ mysql> Select count(*) From t Where a > 1 and b > 2;
 打个不太严谨（但易于理解）的比方：这个过程类似于先在优化器中做一次小的表的查询，以查询过程各个算子的结果来指导执行计划的生成，整个过程如下图：
 
 <div align=center>
-  <img src=./Img/Imp_process.png height=350>
+  <img src=./Img/Imp_process.png height=370>
 </div>
 
 ## 设计与实现
@@ -115,7 +115,7 @@ mysql> Select count(*) From t Where a > 1 and b > 2;
 于是我们复用了 FastAnalyze 的部分代码在 TiDB 上实现了采样的过程，具体如下图：
 
 <div align=center>
-  <img src=./Img/Sampling.png height=350>
+  <img src=./Img/Sampling.png height=370>
 </div>
 
 不一样的是，为了方便后续 expression 的计算，我们在 `HistColl` 中采用 `Chunk` 的结构维护了样本信息。
